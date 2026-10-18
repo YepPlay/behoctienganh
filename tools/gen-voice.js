@@ -23,9 +23,9 @@ const sandbox = {};
 vm.createContext(sandbox);
 vm.runInContext(
   fs.readFileSync(path.join(ROOT, "js", "data.js"), "utf8") +
-  "\n;globalThis.__d = { ALPHABET, PHRASES, CONVO, slugOf, VOICE_LINES };",
+  "\n;globalThis.__d = { ALPHABET, TOPIC_KEYS, TOPICS, PHRASES, CONVO, slugOf, VOICE_LINES };",
   sandbox);
-const { ALPHABET, PHRASES, CONVO, slugOf, VOICE_LINES } = sandbox.__d;
+const { ALPHABET, TOPIC_KEYS, TOPICS, PHRASES, CONVO, slugOf, VOICE_LINES } = sandbox.__d;
 
 /* Xây danh sách key -> { text, lang } */
 const lines = {};
@@ -37,6 +37,9 @@ ALPHABET.forEach(a => {
   add("p" + a.letter, a.letter + " for " + ex.w, "en");      /* phonics: "B for Banana" */
   a.words.forEach(w => add("w_" + slugOf(w.w), w.w, "en"));   /* từ vựng */
 });
+/* Từ CHỦ ĐỀ cũng rút vào quiz (ALL_WORDS = chữ cái + chủ đề, dedupe theo slug
+   ưu tiên chữ cái trước như data.js) — thiếu file w_*.mp3 là câu hỏi im lặng. */
+TOPIC_KEYS.forEach(t => TOPICS[t].words.forEach(w => add("w_" + slugOf(w.w), w.w, "en")));
 PHRASES.forEach((p, i) => add("q" + (i + 1), p.en, "en"));
 CONVO.forEach((c, i) => {
   add("cq" + (i + 1), c.q, "en");

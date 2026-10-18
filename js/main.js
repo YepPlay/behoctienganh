@@ -457,6 +457,8 @@ function init() {
       keys.push("l" + a.letter, "p" + a.letter);
       a.words.forEach(w => keys.push("w_" + slugOf(w.w)));
     });
+    /* Từ chủ đề cũng rút vào quiz (ALL_WORDS) — nạp sẵn để bấm 🔊 là ra tiếng */
+    TOPIC_KEYS.forEach(t => TOPICS[t].words.forEach(w => keys.push("w_" + slugOf(w.w))));
     CONVO.forEach((c, i) => keys.push("cq" + (i + 1), "ca" + (i + 1)));
     Object.keys(VOICE_LINES).forEach(k => keys.push("v" + k));
     Voice.preload(keys);
