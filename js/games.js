@@ -1,16 +1,17 @@
 /* ============================================================
    Bé Học Tiếng Anh — Game engine
-   · Bé Nhỏ (3–6):  abc · topic · listen · pic · match · phrases
+   · Bé Nhỏ (3–6):  abc · topic · listen · pic · match
    · Bé Lớn (6–9):  spell · listenTxt · matchVi · fill · convo
    Quiz dùng chung 1 engine: QUESTIONS[mode]() trả về câu hỏi
    { speak, prompt, options, answer } rồi renderQuiz() điều phối.
    Các mode riêng (abc, topic, match, spell) render tự như behocchu.
+   CHƠI MÃI: mọi chế độ random vĩnh viễn — không vòng cố định,
+   không thanh tiến trình; bé tự bấm ⬅️ Thoát, sao lưu lúc thoát.
    ============================================================ */
 const Game = (() => {
   const PAIR_COLORS = ["#ef4444", "#2563eb", "#16a34a", "#d97706", "#9333ea"];
 
   let state = null;
-  let onEnd = null;
   let abort = null;
   let ticker = null;    /* timer lặp lại / phát tự động đang chờ */
   let startT = null;    /* timer PHÁT TỰ ĐỘNG đầu tiên của vòng hiện tại */
@@ -54,8 +55,16 @@ const Game = (() => {
     const list = LETTER_MAP[letter].words;
     let tries = 0;
     let w = rndPick(list);
-    while (usedEmoji && usedEmoji.has(w.e) && tries++ < 10) w = rndPick(list);
-    if (usedEmoji) usedEmoji.add(w.e);
+    while (usedEmoji && usedEmoji.has(w.e) && tries++ < 8) w = rndPick(list);
+    if (usedEmoji) {
+      /* 8 lần bốc vẫn trùng → chọn bừa 1 từ chưa dùng (nếu có),
+         không bao giờ để 2 ô cùng emoji khi pool còn từ khác. */
+      if (usedEmoji.has(w.e)) {
+        const alt = list.find(x => !usedEmoji.has(x.e));
+        if (alt) w = alt;
+      }
+      usedEmoji.add(w.e);
+    }
     return w;
   }
 
@@ -91,6 +100,31 @@ const Game = (() => {
     return shuffle([correct, ...picked]);
   }
 
+  /* ---------- Túi ngẫu nhiên (chơi mãi) ----------
+     Rút lần lượt từ danh sách đã xáo, hết túi thì xáo lại — random vĩnh viễn
+     nhưng KHÔNG lặp liền kề và mọi chữ/từ đều được xuất hiện. */
+  function bagRefill(list) {
+    const bag = shuffle(list);
+    if (state.bagLast && bag.length > 1 && bag[bag.length - 1] === state.bagLast) {
+      const j = rnd(bag.length - 1);
+      [bag[j], bag[bag.length - 1]] = [bag[bag.length - 1], bag[j]];
+    }
+    state.bag = bag;
+    state.bagPool = list;
+  }
+  function bagNext(list) {
+    if (!state.bag || state.bagPool !== list || !state.bag.length) bagRefill(list);
+    const item = state.bag.pop();
+    state.bagLast = item;
+    return item;
+  }
+
+  /* Pool Điền Chữ Thiếu — tính 1 lần (túi cần mảng giữ nguyên tham chiếu) */
+  const FILL_POOL = ALL_WORDS.filter(w => {
+    const up = w.w.toUpperCase();
+    return up.length >= 3 && up.length <= 8 && /^[A-Za-z ']+$/.test(w.w);
+  });
+
   /* ---------- Vòng chơi ---------- */
 
   function cleanup() {
@@ -101,24 +135,18 @@ const Game = (() => {
 
   function cancel() { cleanup(); state = null; }
 
-  function end() {
-    cleanup();
-    const s = state;
-    state = null;
-    if (onEnd) onEnd(s);
-  }
-
   function next() {
     if (!state) return;
     clearTicker();
-    if (state.idx >= state.rounds) { end(); return; }
+    /* Mỗi vòng rút 1 mục NGẪU NHIÊN từ túi — random vĩnh viễn cho tới
+       khi bé tự bấm ⬅️ Thoát (không vòng cố định, không thanh tiến trình) */
+    if (state.mode === "abc") state.letter = bagNext(LETTERS);
+    else if (state.mode === "topic" && state.topic) state.word = bagNext(TOPICS[state.topic].words);
+    else if (state.mode === "spell") state.word = bagNext(state.spellPool);
     UI.updateStars(state.stars);
-    /* Màn dọc: chấm tiến độ · màn 26 vòng: danh sách ≡ chọn vòng nhanh
-       (UI.progressDots tự quyết, setDot tự bỏ qua khi >12) */
-    if (!state.endless && UI._dots > 0) UI.setDot(state.idx, "current");
     const render = {
       abc: renderAbc, topic: renderTopic, listen: renderListen, pic: renderPic,
-      match: renderMatch, phrases: renderPhrases, spell: renderSpell,
+      match: renderMatch, spell: renderSpell,
       listenTxt: renderListenTxt, matchVi: renderMatchVi, fill: renderFill, convo: renderConvo,
     };
     render[state.mode]();
@@ -136,40 +164,25 @@ const Game = (() => {
     }
   }
 
-  function advance(delay) {
+  /* expect: state tại thời điểm lên lịch — nếu bé đã Thoát / chuyển chế độ
+     (state bị thay thế) thì bỏ qua, không cộng nhầm vòng cho chế độ mới. */
+  function advance(delay, expect) {
     const s = state;
-    if (!s) return;
-    if (!s.endless && UI._dots > 0) UI.setDot(s.idx, "done");
+    if (!s || (expect && s !== expect)) return;
     s.idx++;
     UI.updateStars(s.stars);
-    if (s.idx >= s.rounds) {
-      advT = setTimeout(() => { advT = null; if (state) end(); }, (delay || 700) + 500);
-    } else {
-      advT = setTimeout(() => { advT = null; if (state) next(); }, delay || 900);
-    }
-  }
-
-  function jumpTo(idx) {
-    if (!state || state.endless) return;
-    clearTicker();
-    if (abort) { abort.abort(); abort = null; }
-    Voice.stop();
-    state.idx = Math.max(0, Math.min(state.rounds - 1, idx));
-    state.phase = "study";
-    UI.updateStars(state.stars);
-    if (UI._dots > 0) UI.setDot(state.idx, "current");
-    next();
+    advT = setTimeout(() => { advT = null; if (state === s) next(); }, delay || 900);
   }
 
   /* ============================================================
-     ENGINE QUIZ CHUNG — listen · pic · phrases · listenTxt · fill · convo
+     ENGINE QUIZ CHUNG — listen · pic · listenTxt · fill · convo
      Câu hỏi: { speak:[keys], repeat:bool, prompt:html, options:[{html,data,keys}], answer:i }
      ============================================================ */
 
   const QUESTIONS = {
     /* Nghe & chọn hình (Bé Nhỏ) */
     listen() {
-      const correct = rndPick(ALL_WORDS);
+      const correct = bagNext(ALL_WORDS);
       const opts = pickWordOptions(correct);
       return {
         speak: ["w_" + slugOf(correct.w)],
@@ -184,50 +197,20 @@ const Game = (() => {
       };
     },
 
-    /* Chọn hình theo chữ cái (Bé Nhỏ) */
+    /* Nghe từ & chọn đúng từ (Bé Nhỏ) — thay cho "Chọn Hình Theo Chữ" cũ:
+       đáp án toàn icon dễ ngộ nhận (emoji không diễn tả đúng từ),
+       giờ nghe "Apple" và chọn chữ "Apple" trong 4 ô toàn chữ. */
     pic() {
-      const letter = rndPick(LETTERS);
-      const target = pickWordFor(letter, new Set());
-      /* Đáp án sai: không bắt đầu bằng chữ mục tiêu, không trùng hình —
-         nếu không sẽ có 2 ô cùng hợp lệ làm bé bối rối. */
-      const wrongPool = shuffle(ALL_WORDS.filter(w => w.w[0] !== letter && w.e !== target.e));
-      const usedE = new Set([target.e]);
-      const wrong = [];
-      for (const w of wrongPool) {
-        if (wrong.length >= 3) break;
-        if (usedE.has(w.e)) continue;
-        usedE.add(w.e);
-        wrong.push(w);
-      }
-      const opts = shuffle([target, ...wrong]);
+      const correct = bagNext(ALL_WORDS);
+      const opts = pickWordOptions(correct);
       return {
-        speak: ["l" + letter],
-        prompt: `<div class="letter-card"><div class="big-letter">${letter}</div></div>
-                 <p class="q-ask">Chọn hình có chữ <b>${letter}</b></p>`,
-        options: opts.map(w => ({
-          html: `<span class="opt-emoji">${w.e}</span><span class="opt-word">${w.w}</span>`,
-          keys: ["l" + letter, "w_" + slugOf(w.w)],
-        })),
-        answer: opts.indexOf(target),
-        letter,
-        letterAnswer: true,
-      };
-    },
-
-    /* Nghe câu hằng ngày & chọn hình (Bé Nhỏ) */
-    phrases() {
-      const i = rnd(PHRASES.length) + 1;
-      const correct = PHRASES[i - 1];
-      const wrong = shuffle(PHRASES.filter(p => p.idx !== i)).slice(0, 3);
-      const opts = shuffle([correct, ...wrong]);
-      return {
-        speak: ["q" + i],
+        speak: ["w_" + slugOf(correct.w)],
         repeat: true,
         prompt: `<button class="listen-btn" id="btn-hear">🔊</button>
-                 <p class="q-ask">Nghe và chọn hình đúng</p>`,
-        options: opts.map(p => ({
-          html: `<span class="opt-emoji">${p.icon}</span>`,
-          keys: ["q" + p.idx],
+                 <p class="q-ask">Nghe và chọn từ đúng</p>`,
+        options: opts.map(w => ({
+          html: `<span class="opt-text">${w.w}</span>`,
+          keys: ["w_" + slugOf(w.w)],
         })),
         answer: opts.indexOf(correct),
       };
@@ -235,7 +218,7 @@ const Game = (() => {
 
     /* Nghe & chọn từ có chữ (Bé Lớn) */
     listenTxt() {
-      const correct = rndPick(ALL_WORDS);
+      const correct = bagNext(ALL_WORDS);
       const opts = pickWordOptions(correct);
       return {
         speak: ["w_" + slugOf(correct.w)],
@@ -252,11 +235,7 @@ const Game = (() => {
 
     /* Điền chữ cái còn thiếu (Bé Lớn) */
     fill() {
-      const pool = ALL_WORDS.filter(w => {
-        const up = w.w.toUpperCase();
-        return up.length >= 3 && up.length <= 8 && /^[A-Za-z ']+$/.test(w.w);
-      });
-      const word = rndPick(pool);
+      const word = bagNext(FILL_POOL);
       const up = word.w.toUpperCase();
       /* Chỉ bỏ 1 chữ cái xuất hiện đúng 1 lần, không bỏ chữ đầu */
       const poss = [];
@@ -285,8 +264,8 @@ const Game = (() => {
 
     /* Hội thoại: nghe câu hỏi, chọn câu trả lời (Bé Lớn) */
     convo() {
-      const i = rnd(CONVO.length) + 1;
-      const c = CONVO[i - 1];
+      const c = bagNext(CONVO);
+      const i = CONVO.indexOf(c) + 1;
       const opts = shuffle([c.a, ...c.wrong]);
       return {
         speak: ["cq" + i],
@@ -304,9 +283,10 @@ const Game = (() => {
 
   /* Render quiz chung */
   function renderQuiz(mode) {
+    const st = state;          /* state của vòng này — hẹn giờ phải check đúng nó */
     const q = QUESTIONS[mode]();
-    state.q = q;
-    state.locked = false;   /* mở khóa vòng mới (vòng trước đã khóa khi trả lời đúng) */
+    st.q = q;
+    st.locked = false;   /* mở khóa vòng mới (vòng trước đã khóa khi trả lời đúng) */
 
     area().innerHTML = `
       <div class="q-center">${q.prompt}</div>
@@ -315,20 +295,26 @@ const Game = (() => {
           <button class="opt-btn" data-i="${i}">${o.html}</button>`).join("")}
       </div>`;
 
-    const hear = () => { Sfx.pop(); Voice.say(q.speak); };
+    const hear = force => { Sfx.pop(); Voice.say(q.speak, force); };
     const hearBtn = area().querySelector("#btn-hear");
-    if (hearBtn) hearBtn.onclick = () => { if (!state.locked) { hear(); schedule(); } };
+    /* Bấm 🔊 trước giờ phát tự động → hủy hẹn giờ, không đọc đè 2 lần.
+       Bấm 🔊 = bé ĐÒI nghe → phát kể cả khi tắt tiếng ở menu. */
+    if (hearBtn) hearBtn.onclick = () => { if (!st.locked) { clearTicker(); hear(true); schedule(); } };
 
     /* Tự phát + lặp lại cho mode nghe (Bé Nhỏ chưa thao tác được nhiều) */
     const START_DELAY = 1300, REPEAT_MS = 5500, READS_MAX = 5;
     let reads = 0;
+    /* schedule chỉ lo TIMER LẶP LẠI — không được đụng startT (timer phát tự
+       động đặt bằng later): trước đây nó gọi clearTicker() ngay sau later()
+       → hủy luôn giờ phát tự động → vòng nghe nào cũng IM 1,3 giây đầu rồi
+       mới đọc ở mốc lặp 5,5 giây (mode không lặp thì im luôn). */
     const schedule = () => {
-      clearTicker();
-      if (!q.repeat || state.locked) return;
+      if (ticker) { clearTimeout(ticker); ticker = null; }
+      if (!q.repeat || st.locked) return;
       ticker = setTimeout(tick, REPEAT_MS);
     };
     function tick() {
-      if (!state || state.locked) return;
+      if (state !== st || st.locked) return;
       reads++;
       if (reads <= READS_MAX) { hear(); schedule(); }
       else { Voice.sayVi("conBay"); schedule(); }
@@ -338,21 +324,21 @@ const Game = (() => {
     let first = true;
     area().querySelectorAll(".opt-btn").forEach(btn => {
       btn.onclick = () => {
-        if (state.locked) return;
+        if (st.locked || state !== st) return;
         const i = parseInt(btn.dataset.i, 10);
         if (i === q.answer) {
-          state.locked = true;
+          st.locked = true;
           clearTicker();
           awardStar(first);
-          state.correct++;
+          st.correct++;
           Sfx.correct();
           btn.classList.add("good");
           UI.celebrate(btn);
           Voice.say(q.options[i].keys.length ? q.options[i].keys : q.speak)
-            .then(() => { if (state) advance(400); });
+            .then(() => advance(400, st));
         } else {
           first = false;
-          state.streak = 0;
+          st.streak = 0;
           Sfx.wrong();
           Voice.sayVi("thuLai");
           btn.classList.add("bad");
@@ -364,19 +350,20 @@ const Game = (() => {
 
   const renderListen = () => renderQuiz("listen");
   const renderPic = () => renderQuiz("pic");
-  const renderPhrases = () => renderQuiz("phrases");
   const renderListenTxt = () => renderQuiz("listenTxt");
   const renderFill = () => renderQuiz("fill");
   const renderConvo = () => renderQuiz("convo");
 
   /* ============================================================
      ABC — Học Phonics A–Z (Bé Nhỏ): học chữ + âm + từ ví dụ, rồi quiz
+     Chữ mỗi vòng rút NGẪU NHIÊN từ túi (random vĩnh viễn, không A→Z).
      ============================================================ */
   function renderAbc() {
     clearTicker();   /* chuyển học → quiz trực tiếp (không qua next) */
-    const letter = state.pool[state.idx];
+    const st = state;
+    const letter = st.letter;
     const L = LETTER_MAP[letter];
-    const phase = state.phase || "study";
+    const phase = st.phase || "study";
 
     if (phase === "study") {
       const words = shuffle(L.words);
@@ -399,22 +386,24 @@ const Game = (() => {
         </div>`;
 
       const card = area().querySelector("#learn-card");
-      const playCard = () => {
+      const playCard = force => {
+        clearTicker();   /* bấm thẻ trước giờ phát tự động → không đọc 2 lần */
         Sfx.pop();
-        Voice.sayPhonics(letter);
+        Voice.sayPhonics(letter, force);
         card.classList.remove("playing");
         void card.offsetWidth;
         card.classList.add("playing");
       };
-      card.onclick = playCard;
+      card.onclick = () => { if (state === st) playCard(true); };  /* bấm thẻ = muốn nghe */
       later(playCard, 400);
 
       area().querySelectorAll(".word-chip").forEach(chip => {
-        chip.onclick = () => { Sfx.pop(); Voice.sayWord(chip.dataset.w); };
+        chip.onclick = () => { Sfx.pop(); Voice.sayWord(chip.dataset.w, true); };
       });
       area().querySelector("#btn-learn-next").onclick = () => {
+        if (state !== st) return;
         Sfx.click();
-        state.phase = "quiz";
+        st.phase = "quiz";
         renderAbc();
       };
       return;
@@ -434,27 +423,31 @@ const Game = (() => {
           </button>`).join("")}
       </div>`;
 
-    const hear = () => { Sfx.pop(); Voice.sayPhonics(letter); };
-    area().querySelector("#btn-hear").onclick = hear;
+    let first = true, locked = false;
+    const hear = force => { Sfx.pop(); Voice.sayPhonics(letter, force); };
+    area().querySelector("#btn-hear").onclick = () => {
+      if (locked) return;
+      clearTicker();   /* hủy giờ phát tự động nếu bấm sớm */
+      hear(true);      /* bé chủ động bấm 🔊 → phát kể cả khi tắt tiếng ở menu */
+    };
     later(hear, 350);
 
-    let first = true, locked = false;
     area().querySelectorAll(".opt-btn").forEach(btn => {
       btn.onclick = () => {
-        if (locked) return;
+        if (locked || state !== st) return;
         if (btn.dataset.l === letter) {
           locked = true;
           awardStar(first);
-          state.correct++;
+          st.correct++;
           Sfx.correct();
           btn.classList.add("good");
           UI.celebrate(btn);
           Voice.sayPair(letter);
-          state.phase = "study";
-          advance(1400);
+          st.phase = "study";
+          advance(1400, st);
         } else {
           first = false;
-          state.streak = 0;
+          st.streak = 0;
           Sfx.wrong();
           btn.classList.add("bad");
           btn.disabled = true;
@@ -469,12 +462,13 @@ const Game = (() => {
      ============================================================ */
   function renderTopic() {
     clearTicker();   /* chuyển học → quiz / đổi chủ đề trực tiếp */
-    if (!state.topic) { renderTopicPick(); return; }
+    const st = state;
+    if (!st.topic) { renderTopicPick(); return; }
 
-    const words = TOPICS[state.topic].words;
-    const word = words[state.idx];
+    /* Từ mỗi vòng rút NGẪU NHIÊN từ túi theo chủ đề bé đã chọn */
+    const word = st.word;
 
-    if (state.phase === "study") {
+    if (st.phase === "study") {
       area().innerHTML = `
         <div class="q-center">
           <button class="learn-card word-card" id="word-card">
@@ -489,26 +483,28 @@ const Game = (() => {
         </div>`;
 
       const card = area().querySelector("#word-card");
-      const playCard = () => {
+      const playCard = force => {
+        clearTicker();   /* bấm thẻ trước giờ phát tự động → không đọc 2 lần */
         Sfx.pop();
-        Voice.sayWord(word.w);
+        Voice.sayWord(word.w, force);
         card.classList.remove("playing");
         void card.offsetWidth;
         card.classList.add("playing");
       };
-      card.onclick = playCard;
+      card.onclick = () => { if (state === st) playCard(true); };  /* bấm thẻ = muốn nghe */
       later(playCard, 400);
 
       area().querySelector("#btn-learn-next").onclick = () => {
+        if (state !== st) return;
         Sfx.click();
-        state.phase = "quiz";
+        st.phase = "quiz";
         renderTopic();
       };
       return;
     }
 
     /* Quiz: nghe từ → chọn hình */
-    const opts = pickWordOptions(word, 4, TOPICS[state.topic].words);
+    const opts = pickWordOptions(word, 4, TOPICS[st.topic].words);
     area().innerHTML = `
       <div class="q-center">
         <button class="listen-btn sm" id="btn-hear">🔊</button>
@@ -522,27 +518,31 @@ const Game = (() => {
           </button>`).join("")}
       </div>`;
 
-    const hear = () => { Sfx.pop(); Voice.sayWord(word.w); };
-    area().querySelector("#btn-hear").onclick = hear;
+    let first = true, locked = false;
+    const hear = force => { Sfx.pop(); Voice.sayWord(word.w, force); };
+    area().querySelector("#btn-hear").onclick = () => {
+      if (locked) return;
+      clearTicker();   /* hủy giờ phát tự động nếu bấm sớm */
+      hear(true);      /* bé chủ động bấm 🔊 → phát kể cả khi tắt tiếng ở menu */
+    };
     later(hear, 350);
 
-    let first = true, locked = false;
     area().querySelectorAll(".opt-btn").forEach(btn => {
       btn.onclick = () => {
-        if (locked) return;
+        if (locked || state !== st) return;
         if (opts[parseInt(btn.dataset.i, 10)] === word) {
           locked = true;
           awardStar(first);
-          state.correct++;
+          st.correct++;
           Sfx.correct();
           btn.classList.add("good");
           UI.celebrate(btn);
           Voice.sayWord(word.w);
-          state.phase = "study";
-          advance(1200);
+          st.phase = "study";
+          advance(1200, st);
         } else {
           first = false;
-          state.streak = 0;
+          st.streak = 0;
           Sfx.wrong();
           btn.classList.add("bad");
           btn.disabled = true;
@@ -565,21 +565,20 @@ const Game = (() => {
       btn.onclick = () => {
         Sfx.click();
         state.topic = btn.dataset.t;
-        state.rounds = TOPICS[state.topic].words.length;
-        state.total = state.rounds;
         state.phase = "study";
-        UI.progressDots(state.rounds);
-        next();
+        next();   /* vòng đầu rút từ ngẫu nhiên trong chủ đề bé chọn */
       };
     });
   }
 
   /* ============================================================
-     MATCH — Nối từ với hình (Bé Nhỏ, endless)
-     MATCHVI — Nối từ Anh với nghĩa Việt (Bé Lớn, endless)
+     MATCH — Nối từ với hình (Bé Nhỏ): cột TRÁI chỉ HÌNH, cột PHẢI chỉ CHỮ —
+     bấm hình nghe tiếng đọc rồi nối sang ô chữ.
+     MATCHVI — Nối từ Anh với nghĩa Việt (Bé Lớn): 2 cột đều là chữ.
      ============================================================ */
   function renderMatch() {
-    const vi = state.mode === "matchVi";
+    const st = state;   /* state của vòng này — hẹn giờ/click phải check đúng nó */
+    const vi = st.mode === "matchVi";
     const size = 4;
 
     /* Nhóm từ: theo chữ cái đầu (match) hoặc ngẫu nhiên (matchVi) */
@@ -589,9 +588,9 @@ const Game = (() => {
       for (let t = 0; t < 4; t++) {
         picks = shuffle(ALL_WORDS).slice(0, size);
         key = picks.map(w => w.w).sort().join(",");
-        if (key !== state.lastGroup) break;
+        if (key !== st.lastGroup) break;
       }
-      state.lastGroup = key;
+      st.lastGroup = key;
     } else {
       let key = "";
       for (let t = 0; t < 4; t++) {
@@ -599,9 +598,9 @@ const Game = (() => {
         const wmap = pickWords(letters, true);
         picks = letters.map(l => wmap[l]);
         key = picks.map(w => w.w).sort().join(",");
-        if (key !== state.lastGroup) break;
+        if (key !== st.lastGroup) break;
       }
-      state.lastGroup = key;
+      st.lastGroup = key;
     }
 
     const lefts = shuffle(picks);
@@ -615,14 +614,14 @@ const Game = (() => {
         <div class="match-col" id="col-left">
           ${lefts.map(w => `
             <div class="m-pic" data-w="${w.w}">
-              ${vi ? `<span class="m-word en">${w.w}</span>` : `<span class="m-emoji">${w.e}</span><span class="m-word">${w.w}</span>`}
+              ${vi ? `<span class="m-word en">${w.w}</span>` : `<span class="m-emoji">${w.e}</span>`}
             </div>`).join("")}
         </div>
         <svg class="match-lines" id="mlines"></svg>
         <div class="match-col" id="col-right">
           ${rights.map(w => `
             <div class="m-letter" data-w="${w.w}">
-              ${vi ? `<span class="m-word vi">${w.vi}</span>` : `<span class="m-emoji">${w.e}</span>`}
+              ${vi ? `<span class="m-word vi">${w.vi}</span>` : `<span class="m-word">${w.w}</span>`}
             </div>`).join("")}
         </div>
       </div>`;
@@ -668,19 +667,19 @@ const Game = (() => {
         pic.style.setProperty("--pair", color);
         lc.style.setProperty("--pair", color);
         drawLine(pic, lc, color);
-        state.correct++;
-        if (pic.dataset.retried !== "1") state.stars++;
+        st.correct++;
+        if (pic.dataset.retried !== "1") st.stars++;
         Sfx.correct();
-        Voice.sayWord(a);
+        Voice.sayWord(a, true);   /* vừa nối đúng → nghe lại từ (bé muốn nghe) */
         clearSel();
         UI.celebrate(pic, { praise: false, big: false });
-        UI.updateStars(state.stars);
+        UI.updateStars(st.stars);
         if (done.size === picks.length) {
-          state.idx++;
+          st.idx++;
           Sfx.win();
           UI.praise("🎉");
           UI.confetti(30);
-          ticker = setTimeout(() => { ticker = null; if (state) next(); }, 1600);
+          ticker = setTimeout(() => { ticker = null; if (state === st) next(); }, 1600);
         }
       } else {
         pic.dataset.retried = "1";
@@ -697,7 +696,7 @@ const Game = (() => {
         if (done.has(pic.dataset.w)) return;
         e.preventDefault();
         Sfx.pop();
-        Voice.sayWord(pic.dataset.w);
+        Voice.sayWord(pic.dataset.w, true);   /* bấm hình = muốn nghe từ */
         moved = false;
         pic.classList.add("lift");
         const ghost = document.createElement("div");
@@ -745,11 +744,8 @@ const Game = (() => {
      SPELL — Ghép chữ thành từ (Bé Lớn): bấm chữ đúng thứ tự
      ============================================================ */
   function renderSpell() {
-    if (!state.spellPool) {
-      state.spellPool = shuffle(ALL_WORDS.filter(w =>
-        w.w.length >= 3 && w.w.length <= 7 && /^[a-z]+$/i.test(w.w)));
-    }
-    const word = state.spellPool[state.idx % state.spellPool.length];
+    const st = state;
+    const word = st.word;   /* từ rút NGẪU NHIÊN từ túi ở next() */
     const up = word.w.toUpperCase();
 
     /* Chip chữ cái theo thứ tự — chữ trùng vẫn là chip riêng */
@@ -779,15 +775,19 @@ const Game = (() => {
 
       area().querySelectorAll(".spell-chip:not(.used)").forEach(btn => {
         btn.onclick = () => {
-          if (locked) return;
+          if (locked || state !== st) return;
+          clearTicker();   /* bấm chip trước giờ phát tự động → không đọc 2 lần */
+          /* chips đã xáo — tra theo chỉ số GỐC (data-i), không tra vị trí trong mảng */
           const ci = parseInt(btn.dataset.i, 10);
+          const c = chips.find(x => x.i === ci);
+          if (!c) return;
           /* Tìm ô trống kế tiếp */
           let slot = -1;
           for (let i = 0; i < up.length; i++) { if (filled[i] == null) { slot = i; break; } }
           if (slot < 0) return;
 
-          if (chips[ci].ch === up[slot]) {
-            filled[slot] = { ch: chips[ci].ch, i: ci };
+          if (c.ch === up[slot]) {
+            filled[slot] = { ch: c.ch, i: ci };
             Sfx.pop();
             if (filled.every(f => f != null)) {
               /* Đủ từ → đúng! Vẽ nốt chữ cuối rồi mới tung hô
@@ -795,25 +795,23 @@ const Game = (() => {
               locked = true;
               paint();
               awardStar(first);
-              state.correct++;
+              st.correct++;
               Sfx.correct();
               UI.celebrate(area().querySelector(".spell-word"));
               Voice.sayWord(word.w).then(() => {
-                if (state) {
-                  state.idx++;
-                  UI.setDot(state.idx - 1, "done");
-                  UI.updateStars(state.stars);
-                  if (state.idx >= state.rounds) end();
-                  else next();
+                if (state === st) {
+                  st.idx++;
+                  UI.updateStars(st.stars);
+                  next();
                 }
               });
             } else {
               paint();
-              Voice.say([ "w_" + slugOf(word.w) ]);
+              Voice.say([ "w_" + slugOf(word.w) ], true);   /* bấm chip = muốn nghe */
             }
           } else {
             first = false;
-            state.streak = 0;
+            st.streak = 0;
             Sfx.wrong();
             btn.classList.add("bad");
             setTimeout(() => btn.classList.remove("bad"), 500);
@@ -829,28 +827,24 @@ const Game = (() => {
   /* ---------- API ---------- */
 
   return {
-    start(mode, cb, level) {
+    /* Chơi mãi: không truyền cb/kết thúc — chỉ dừng khi bé bấm ⬅️ Thoát
+       (main.js lưu snapshot sao trước khi cancel). */
+    start(mode, level) {
       cleanup();
-      onEnd = cb;
-      const conf = MODES[mode] || {};
-      const endless = !!conf.endless;
-      const rounds = endless ? Infinity
-        : mode === "abc" ? LETTERS.length
-        : conf.rounds ? conf.rounds() : 10;
       state = {
-        mode, level: level || "small", endless, idx: 0, stars: 0, streak: 0, correct: 0,
-        rounds, total: endless ? 0 : rounds, phase: "study",
-        pool: mode === "abc" ? LETTERS.slice() : null,
+        mode, level: level || "small", idx: 0, stars: 0, streak: 0, correct: 0,
+        phase: "study", letter: null, word: null,
+        bag: null, bagLast: null, bagPool: null,   /* túi ngẫu nhiên */
+        spellPool: mode === "spell" ? shuffle(ALL_WORDS.filter(w =>
+          w.w.length >= 3 && w.w.length <= 7 && /^[a-z]+$/i.test(w.w))) : null,
       };
       Voice.preload(LETTERS.map(l => "l" + l).concat(LETTERS.map(l => "p" + l)));
-      if (endless) UI.hideProgress();
-      else UI.progressDots(rounds);   /* ≤12 chấm · >12 (A–Z 26 vòng) nút ≡ */
       UI.updateStars(0);
       next();
     },
-    cancel, jumpTo,
-    currentIdx: () => (state ? state.idx : -1),
-    currentPool: () => (state && state.pool ? state.pool : LETTERS),
+    cancel,
+    /* Sao sao hiện tại để main.js lưu khi bé thoát (quy tắc cũ) */
+    snapshot: () => (state ? { mode: state.mode, stars: state.stars, endless: true } : null),
     /* Dành cho tools/smoke-test.js — không dùng khi chơi thật */
     _state: () => state,
   };

@@ -68,15 +68,25 @@ const Voice = (() => {
 
   const srcOf = key => FOLDER + key + ".mp3";
 
-  // Tải + giải mã 1 file bằng Web Audio.
-  function decodeOnce(src) {
-    const c = AudioCtx();
-    if (!c) return Promise.reject(new Error("no AudioContext"));
-    return fetch(src)
+  // Tải 1 file có thời hạn — nếu mạng "treo" (không lỗi, không xong) thì hủy
+  // bằng AbortController. Không có thời hạn: 1 lần fetch treo = file đó "chết"
+  // mãi trong bộ đệm → bé bấm 🔊 bao nhiêu lần cũng im.
+  function fetchBuf(src, ms) {
+    const ctrl = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = setTimeout(() => { try { if (ctrl) ctrl.abort(); } catch (e) { } }, ms);
+    return fetch(src, ctrl ? { signal: ctrl.signal } : undefined)
       .then(res => {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.arrayBuffer();
       })
+      .finally(() => clearTimeout(timer));
+  }
+
+  // Tải + giải mã 1 file bằng Web Audio.
+  function decodeOnce(src) {
+    const c = AudioCtx();
+    if (!c) return Promise.reject(new Error("no AudioContext"));
+    return fetchBuf(src, 8000)
       .then(data => new Promise((resolve, reject) => {
         const r = c.decodeAudioData(data, resolve, reject); // Safari cũ chỉ có callback
         if (r && typeof r.then === "function") r.then(resolve, reject);
@@ -110,14 +120,23 @@ const Voice = (() => {
       if (!buf || !c || my !== seq) return resolve(false);
       let done = false;
       let node = null;
+      let wd = null;      /* hẹn giờ cứu: onended KHÔNG BAO GIỜ fire nếu
+                             AudioContext đang suspended (máy khóa màn hình,
+                             iOS sau khi app ở nền) — không có watchdog thì
+                             lượt đọc treo mãi và các câu sau không bao giờ phát */
       const fin = ok => {
         if (done) return;
         done = true;
+        if (wd) { clearTimeout(wd); wd = null; }
         if (pending === fin) pending = null;
         if (current === node) current = null;
+        /* watchdog bắn trước khi onended → node có thể vẫn còn "kẹt" trong
+           hàng đợi của ctx; dừng hẳn để không phát muộn ghost khi ctx resume */
+        if (node) { try { node.onended = null; node.stop(); } catch (e) { } }
         resolve(ok);
       };
       pending = fin;
+      wd = setTimeout(() => fin(false), Math.max(2000, (buf.duration || 0) * 1000 + 2000));
       try {
         node = c.createBufferSource();
         node.buffer = buf;
@@ -136,15 +155,18 @@ const Voice = (() => {
       let el;
       try { el = new Audio(); } catch (e) { return resolve(false); }
       let done = false;
+      let wd = null;   /* cứu hộ: nếu neither onended nor onerror bao giờ fire */
       const fin = ok => {
         if (done) return;
         done = true;
+        if (wd) { clearTimeout(wd); wd = null; }
         if (pending === fin) pending = null;
         if (current === el) current = null;
-        try { el.onended = el.onerror = null; } catch (e) { }
+        try { el.onended = el.onerror = null; el.pause(); el.removeAttribute("src"); } catch (e) { }
         resolve(ok);
       };
       pending = fin;
+      wd = setTimeout(() => fin(false), 12000);
       el.preload = "auto";
       el.onended = () => fin(true);
       el.onerror = () => fin(false);
@@ -182,7 +204,7 @@ const Voice = (() => {
   }
 
   // Đọc lần lượt các key — trả Promise resolve khi PHÁT XONG.
-  async function runKeys(keys, muteCheck) {
+  async function runKeys(keys) {
     const my = ++seq;
     stopAll();
     for (const k of keys) {
@@ -191,8 +213,10 @@ const Voice = (() => {
     }
   }
 
-  function speakNow(keys) {
-    if (!on) return Promise.resolve(false);
+  function speakNow(keys, force) {
+    /* force=true: bé CHỦ ĐỘNG bấm 🔊 muốn nghe → phát kể cả khi đã tắt tiếng
+       ở menu (tắt tiếng chỉ để ngắt tiếng tự động, không chặn lúc bé đòi nghe) */
+    if (!on && !force) return Promise.resolve(false);
     return runKeys(keys);
   }
 
@@ -207,7 +231,7 @@ const Voice = (() => {
     sayLetter(l) { return speakNow([letterOf(l)]); },
 
     /* Phonics: "bee — B for Banana" (tên chữ + âm ví dụ) */
-    sayPhonics(l) { return speakNow([letterOf(l), phonicOf(l)]); },
+    sayPhonics(l, force) { return speakNow([letterOf(l), phonicOf(l)], force); },
 
     /* Tên chữ rồi tới từ ví dụ (khen bé sau câu đúng) */
     sayPair(l, word) {
@@ -217,10 +241,9 @@ const Voice = (() => {
     },
 
     /* 1 từ tiếng Anh */
-    sayWord(w) { return speakNow([wordOf(w)]); },
+    sayWord(w, force) { return speakNow([wordOf(w)], force); },
 
-    /* Câu hằng ngày q1..q12 / hội thoại cq/ca */
-    sayPhrase(i) { return speakNow(["q" + i]); },
+    /* Hội thoại cq<i> (câu hỏi) / ca<i> (câu trả lời) */
     sayConvoQ(i) { return speakNow(["cq" + i]); },
     sayConvoA(i) { return speakNow(["ca" + i]); },
 
@@ -228,7 +251,7 @@ const Voice = (() => {
     sayVi(key) { return speakNow([viOf(key)]); },
 
     /* Chuỗi key tự do */
-    say(keys) { return speakNow(keys); },
+    say(keys, force) { return speakNow(keys, force); },
 
     warm() { AudioCtx(); },
     stop() { seq++; stopAll(); },

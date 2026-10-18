@@ -40,8 +40,6 @@ function saveStore() {
 }
 const progress = () => store.progress[store.theme] || defaultProgress();
 
-let lastPlay = null;
-
 function show(id) {
   document.querySelectorAll(".screen").forEach(s => s.classList.toggle("active", s.id === id));
   fitScreen(document.getElementById(id));
@@ -66,32 +64,6 @@ function fitScreen(sc) {
 const UI = {
   cssVar(name) { return getComputedStyle(document.body).getPropertyValue(name).trim(); },
 
-  progressDots(n) {
-    UI._dots = n;
-    const el = $("#play-progress");
-    if (!el) return;
-    if (n > 12) {
-      el.innerHTML = `<span class="prog-list" title="Chọn vòng nhanh" aria-label="Chọn vòng">≡</span>`;
-    } else {
-      el.innerHTML = Array.from({ length: n }, () => '<span class="dot"></span>').join("");
-    }
-  },
-  setDot(i, cls) {
-    const el = $("#play-progress");
-    if (!el || UI._dots > 12) return;
-    const d = el.children[i];
-    if (d) d.className = "dot " + cls;
-  },
-  progressText(cur, total) {
-    UI._dots = 0;
-    const el = $("#play-progress");
-    if (el) el.innerHTML = `<span class="prog-text">${Math.min(cur, total)}/${total}</span>`;
-  },
-  hideProgress() {
-    UI._dots = 0;
-    const el = $("#play-progress");
-    if (el) el.innerHTML = "";
-  },
   updateStars(n) { const el = $("#play-stars"); if (el) el.textContent = "⭐ " + n; },
 
   confetti(n) {
@@ -373,37 +345,8 @@ function buildMenu() {
 }
 
 function startMode(mode) {
-  lastPlay = { mode };
   show("screen-play");
-  Game.start(mode, endRound, store.level);
-}
-
-function endRound(s) {
-  const mode = lastPlay.mode;
-  const p = progress();
-  p.total += s.stars;
-  p.best[mode] = Math.max(p.best[mode] || 0, s.stars);
-  saveStore();
-
-  const maxStars = s.total || 1;
-  /* Endless (nối từ): không có tổng vòng — dựa vào số cặp đúng */
-  const ratio = s.endless ? (s.correct > 0 ? 1 : 0) : s.stars / maxStars;
-
-  const emoji = ratio >= 0.9 ? "🏆" : ratio >= 0.55 ? "🎉" : "💪";
-  const title = ratio >= 0.9 ? "Giỏi quá!" : ratio >= 0.55 ? "Giỏi lắm!" : "Cố lên nhé!";
-
-  $("#summary-emoji").textContent = emoji;
-  $("#summary-title").textContent = title;
-  $("#summary-stars").innerHTML =
-    `<div class="big-stars">${"⭐".repeat(Math.min(s.stars, 12))}${s.stars > 12 ? "…" : ""}</div>
-     <div class="star-count">${s.stars} ngôi sao</div>`;
-  $("#summary-text").innerHTML = s.endless
-    ? `Bé đã chơi <b>${MODES[mode].name}</b> · ${s.correct} cặp đúng 💛`
-    : `Bé đã chơi <b>${MODES[mode].name}</b> · ${s.correct} câu đúng 💛`;
-
-  show("screen-summary");
-  Sfx.win();
-  UI.confetti(24);
+  Game.start(mode, store.level);
 }
 
 function init() {
@@ -432,9 +375,21 @@ function init() {
 
   $("#btn-switch").onclick = () => { Sfx.click(); Voice.stop(); show("screen-choose"); };
   $("#btn-level").onclick = () => { Sfx.click(); Voice.stop(); show("screen-level"); };
-  $("#btn-back").onclick = () => { Sfx.click(); Game.cancel(); buildMenu(); show("screen-menu"); };
-  $("#btn-menu").onclick = () => { Sfx.click(); buildMenu(); show("screen-menu"); };
-  $("#btn-replay").onclick = () => { Sfx.click(); if (lastPlay) startMode(lastPlay.mode); };
+  $("#btn-back").onclick = () => {
+    Sfx.click();
+    /* Chơi mãi: không màn tổng kết — lưu tổng sao + best của mode
+       ngay khi bé tự bấm ⬅️ Thoát (quy tắc cũ như behocchu). */
+    const snap = Game.snapshot();
+    if (snap) {
+      const p = progress();
+      p.total += snap.stars;
+      p.best[snap.mode] = Math.max(p.best[snap.mode] || 0, snap.stars);
+      saveStore();
+    }
+    Game.cancel();
+    buildMenu();
+    show("screen-menu");
+  };
 
   $("#menu-avatar").onclick = () => {
     Sfx.click();
@@ -449,32 +404,6 @@ function init() {
   }
   if (vb) vb.onclick = () => { Sfx.click(); Voice.toggle(); paintVoice(); };
   paintVoice();
-
-  /* Jump tới vòng bất kỳ (alphabet 26 vòng) */
-  const pp = $("#play-progress");
-  const jp = $("#jump-picker");
-  const jg = $("#jump-grid");
-  const curIdx = () => (Game.currentIdx ? Game.currentIdx() : -1);
-  function closeJump() { if (jp) jp.classList.remove("open"); }
-  if (pp) pp.addEventListener("click", () => {
-    if (UI._dots > 12 && jp && jg) {
-      Sfx.click();
-      const pool = Game.currentPool();
-      const active = curIdx();
-      jg.innerHTML = pool.map((l, i) =>
-        `<button class="popup-chip${i === active ? " active" : ""}" data-idx="${i}">${l}</button>`).join("");
-      jp.classList.add("open");
-    }
-  });
-  if ($("#jump-backdrop")) $("#jump-backdrop").addEventListener("click", closeJump);
-  if ($("#jump-close")) $("#jump-close").addEventListener("click", () => { Sfx.click(); closeJump(); });
-  if (jg) jg.addEventListener("click", e => {
-    const btn = e.target.closest(".popup-chip");
-    if (!btn) return;
-    Sfx.click();
-    Game.jumpTo(parseInt(btn.dataset.idx, 10));
-    closeJump();
-  });
 
   /* Ủng hộ */
   const donate = $("#donate-popup");
@@ -528,7 +457,6 @@ function init() {
       keys.push("l" + a.letter, "p" + a.letter);
       a.words.forEach(w => keys.push("w_" + slugOf(w.w)));
     });
-    PHRASES.forEach((p, i) => keys.push("q" + (i + 1)));
     CONVO.forEach((c, i) => keys.push("cq" + (i + 1), "ca" + (i + 1)));
     Object.keys(VOICE_LINES).forEach(k => keys.push("v" + k));
     Voice.preload(keys);

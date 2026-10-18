@@ -2,8 +2,8 @@
        node tools/check-questions.js          (mặc định 3000 lần/mode)
        node tools/check-questions.js 10000
    Bắt lỗi:
-     · Quiz có <2 đáp án, có đáp án trùng emoji, đáp án đúng không tồn tại
-     · pic: đáp án sai KHÔNG được chứa chữ cái mục tiêu (tránh 2-3 hình cùng hợp lệ)
+     · Quiz có <2 đáp án, có đáp án trùng emoji/từ, đáp án đúng không tồn tại
+     · pic: nghe từ → 4 ô toàn chữ, không trùng từ (không dùng icon)
      · fill: từ thiếu chữ cái phải THẬT SỰ là từ có nghĩa, không sinh vòng lặp vô hạn
      · spell: từ ghép phải là chữ latin, không có khoảng trắng
      · match/matchVi: không được lặp cùng 1 nhóm liên tục
@@ -97,8 +97,14 @@ function buildLetterOptions(correct, n = 4) {
 function pickWordFor(letter, usedEmoji) {
   const list = LETTER_MAP[letter].words;
   let tries = 0; let w = rndPick(list);
-  while (usedEmoji && usedEmoji.has(w.e) && tries++ < 10) w = rndPick(list);
-  if (usedEmoji) usedEmoji.add(w.e);
+  while (usedEmoji && usedEmoji.has(w.e) && tries++ < 8) w = rndPick(list);
+  if (usedEmoji) {
+    if (usedEmoji.has(w.e)) {           /* như engine games.js: không để trùng emoji */
+      const alt = list.find(x => !usedEmoji.has(x.e));
+      if (alt) w = alt;
+    }
+    usedEmoji.add(w.e);
+  }
   return w;
 }
 function pickWordOptions(correct, n = 4, pool) {
@@ -127,32 +133,20 @@ for (let i = 0; i < N; i++) {
   const letter = rndPick(LETTERS);
   const opts = buildLetterOptions(letter);
   if (opts.length !== 4) { abcBad++; err("abc: không đủ 4 đáp án"); break; }
-  if (opts.indexOf(letter) < 0) { abcBad++; err("abc: đáp án đúng不在 options"); break; }
+  if (opts.indexOf(letter) < 0) { abcBad++; err("abc: đáp án đúng không có trong options"); break; }
   if (new Set(opts).size !== 4) { abcBad++; err("abc: có đáp án trùng"); break; }
 }
 if (!abcBad) console.log(`   abc      ✓ ${N} vòng`);
 
-/* Mode: pic — chọn hình có chữ cái. Đáp án sai không được chứa chữ cái mục tiêu
-   và 4 ô phải khác hình nhau (nếu không bé thấy 2 ô y hệt). */
+/* Mode: pic — NGHE từ & chọn từ đúng (thay cho mode icon cũ): 4 ô toàn chữ,
+   đáp án đúng có trong options, không trùng từ với nhau. */
 let picBad = 0;
 for (let i = 0; i < N; i++) {
-  const letter = rndPick(LETTERS);
-  const target = pickWordFor(letter, new Set());
-  const wrongPool = shuffle(ALL_WORDS.filter(w => w.w[0] !== letter && w.e !== target.e));
-  const usedE = new Set([target.e]);
-  const wrong = [];
-  for (const w of wrongPool) {
-    if (wrong.length >= 3) break;
-    if (usedE.has(w.e)) continue;
-    usedE.add(w.e);
-    wrong.push(w);
-  }
-  const opts = shuffle([target, ...wrong]);
-  if (opts.length !== 4) { err("pic: không đủ 4"); picBad++; break; }
-  if (opts.indexOf(target) < 0) { err("pic: đáp án đúng不在"); picBad++; break; }
-  for (const w of wrong) {
-    if (w.w[0] === letter) { err(`pic: đáp án sai "${w.w}" cũng bắt đầu bằng ${letter} → nhiều đáp án đúng`); picBad++; break; }
-  }
+  const correct = rndPick(ALL_WORDS);
+  const opts = pickWordOptions(correct);
+  if (opts.length !== 4) { err("pic: không đủ 4 đáp án"); picBad++; break; }
+  if (opts.indexOf(correct) < 0) { err("pic: đáp án đúng không có trong options"); picBad++; break; }
+  if (new Set(opts.map(w => w.w)).size !== 4) { err("pic: có 2 ô trùng từ"); picBad++; break; }
   if (new Set(opts.map(w => w.e)).size !== 4) { err("pic: có 2 ô trùng emoji"); picBad++; break; }
 }
 if (!picBad) console.log(`   pic      ✓ ${N} vòng`);
@@ -177,10 +171,9 @@ for (let i = 0; i < Math.min(N, 5000); i++) {
 }
 if (!fillBad) console.log(`   fill     ✓ pool=${fillPool.length} từ`);
 
-/* Mode: listen / listenTxt / phrases — 4 đáp án unique */
+/* Mode: listen / listenTxt — 4 đáp án unique */
 function checkFour(opts, label) {
-  if (opts.length !== 4) { err(`${label}: có ${opts.length} đáp án`); return false; }
-  if (opts.indexOf(opts.find(o => o)) < 0) { err(`${label}: lỗi logic`); return false; }
+  if (!Array.isArray(opts) || opts.length !== 4) { err(`${label}: có ${Array.isArray(opts) ? opts.length : "?"} đáp án`); return false; }
   return true;
 }
 let qtBad = 0;
@@ -188,22 +181,14 @@ for (let i = 0; i < N; i++) {
   const correct = rndPick(ALL_WORDS);
   const opts = pickWordOptions(correct);
   if (!checkFour(opts, "listen")) { qtBad++; break; }
-  if (opts.indexOf(correct) < 0) { err("listen: đáp án đúng不在"); qtBad++; break; }
+  if (opts.indexOf(correct) < 0) { err("listen: đáp án đúng không có trong options"); qtBad++; break; }
   if (new Set(opts.map(w => w.w)).size !== 4) { err("listen: có đáp án trùng từ"); qtBad++; break; }
 }
 if (!qtBad) console.log(`   listen   ✓ ${N} vòng`);
 
-let phBad = 0;
-for (let i = 0; i < N; i++) {
-  const idx = rnd(PHRASES.length) + 1;
-  const correct = PHRASES[idx - 1];
-  const wrong = shuffle(PHRASES.filter(p => p.idx !== idx)).slice(0, 3);
-  const opts = shuffle([correct, ...wrong]);
-  if (opts.length !== 4) { err("phrases: không đủ 4"); phBad++; break; }
-  if (opts.indexOf(correct) < 0) { err("phrases: đáp án đúng不在"); phBad++; break; }
-  if (new Set(opts.map(p => p.icon)).size !== 4) { soft("phrases: có icon trùng — bé dễ đoán"); }
-}
-if (!phBad) console.log(`   phrases  ✓ ${N} vòng`);
+/* (Mode `phrases` — "Nghe Câu Hằng Ngày" — đã gỡ khỏi menu Bé Nhỏ.
+   Mảng PHRASES + key q1..q12 vẫn được kiểm-tra/warm ở trên để dữ liệu
+   còn dùng lại được nếu bật lại chế độ.) */
 
 let cvBad = 0;
 for (let i = 0; i < N; i++) {
@@ -211,7 +196,7 @@ for (let i = 0; i < N; i++) {
   const c = CONVO[idx - 1];
   const opts = shuffle([c.a, ...c.wrong]);
   if (opts.length !== 4) { err("convo: không đủ 4"); cvBad++; break; }
-  if (opts.indexOf(c.a) < 0) { err("convo: đáp án đúng不在"); cvBad++; break; }
+  if (opts.indexOf(c.a) < 0) { err("convo: đáp án đúng không có trong options"); cvBad++; break; }
 }
 if (!cvBad) console.log(`   convo    ✓ ${N} vòng`);
 

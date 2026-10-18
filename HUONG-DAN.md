@@ -11,7 +11,7 @@
 | --- | --- |
 | **Kiểm tra nội dung** (validate dữ liệu + sinh thử 3.000 câu/mode) | `node tools/check-questions.js` |
 | **Kiểm tra DOM** (id/selector JS tra cứu đều có thật) | `node tools/check-dom.js` |
-| **Smoke-test toàn game** chơi thật 11 mode bằng jsdom (cần `npm i jsdom --no-save` 1 lần, hoặc mượn jsdom của `../behoctoan`) | `node tools/smoke-test.js` |
+| **Smoke-test toàn game** chơi thật 10 mode (mỗi mode chơi mãi rồi bấm Thoát) bằng jsdom (cần `npm i jsdom --no-save` 1 lần, hoặc mượn jsdom của `../behoctoan`) | `node tools/smoke-test.js` |
 | **Sinh file giọng đọc MP3** (Google TTS, cần mạng) | `node tools/gen-voice.js` · thêm `--force` để sinh lại toàn bộ |
 | **Làm mới cache offline** (chạy sau MỌI lần sửa file) | `node tools/gen-sw.js` |
 | Kiểm tra cú pháp 1 file JS | `node --check js/games.js` |
@@ -19,7 +19,7 @@
 > 🌐 Game chạy online/offline dạng **PWA**. Khác 2 game anh em (behoctoan/behocchu):
 > **âm đọc tiếng Anh là file MP3 có sẵn** trong `assets/voice/` (218 file, ~1.8 MB) —
 > phát qua Web Audio API, fallback thẻ `<audio>`. Không dùng `speechSynthesis`
-> (giọng đọcantuỳ thiết bị, không ổn định, khó kiểm soát — xem `js/audio.js`).
+> (phụ thuộc từng thiết bị, không ổn định, khó kiểm soát — xem `js/audio.js`).
 
 ---
 
@@ -28,33 +28,37 @@
 ```
 Chọn Bé (Trai 🧒 / Gái 👧 — theme Xanh/Vàng)
    → Chọn Cấp Độ (chỉ hiện 1 lần đầu):
-        🌱 BÉ NHỎ 3–6  → Menu 6 chế độ · đáp án toàn HÌNH + TIẾNG ĐỌC
+        🌱 BÉ NHỎ 3–6  → Menu 6 chế độ · đáp án hình + tiếng đọc (có mode toàn chữ)
         📚 BÉ LỚN 6–9  → Menu 6 chế độ · đáp án có CHỮ
    → Menu (xem tổng sao ⭐, bấm 🎚️ để đổi cấp độ)
-   → Chơi: số vòng CỐ ĐỊNH (10 vòng, hoặc 26 vòng với ABC A–Z)
-   → Bấm ⬅️ hoặc hết vòng → Popup tổng kết: sao + khen → Chơi Lại / Chơi Tiếp / Menu
+   → Chơi MÃI: mỗi vòng RANDOM VĨNH VIỄN (túi ngẫu nhiên, không lặp liền kề) —
+     KHÔNG thanh tiến trình, KHÔNG màn tổng kết
+   → Bé tự bấm ⬅️ Thoát → về Menu, sao ⭐ được lưu NGAY LÚC THOÁT
 ```
 
-- **Tiến độ** lưu theo bạn (sessionStorage `en.progress`): tổng sao ⭐ + best từng mode.
-- **Chữ ABC học đến đâu nhớ đến đó**: popup **≡** (hiện khi >12 vòng) cho nhảy thẳng tới chữ bất kỳ.
+- **Tiến độ** lưu theo bạn (sessionStorage `en.progress`): tổng sao ⭐ + best từng mode —
+  cộng + lưu **ngay khi bé bấm ⬅️ Thoát** (quy tắc cũ như behocchu).
+- **Random vĩnh viễn**: mỗi vòng rút 1 mục từ "túi" đã xáo — hết túi tự xáo lại
+  (không lặp liền kề, mọi chữ/từ đều được xuất hiện).
 - Âm đọc tự phát + lặp mỗi 5.5 giây (tối đa 5 lần) rồi hỏi "Bé còn đó không?".
 - Nút 🔊/🔇 bật tắt tiếng đọc (nhớ trong `localStorage` `en.voice`).
 
 ### 2.1. Các chế độ
 
+> Mọi mode đều **chơi mãi** — không có số vòng cố định, bé thoát bằng nút ⬅️.
+
 | Bé Nhỏ 3–6 | Bé Lớn 6–9 | Tên trên menu |
 | --- | --- | --- |
-| `abc` (cùng) | `abc` | 🔤 Bảng Chữ Cái — học phonics + quiz nghe âm chọn chữ |
-| `topic` | — | 🎨 Chủ Đề — chọn chủ đề → học từ có phát âm → quiz |
-| `listen` | — | 👂 Nghe & Chọn — nghe từ, chọn hình |
-| `pic` | — | 🖼️ Chữ & Hình — thấy chữ, chọn hình đúng |
-| `match` | — | 🔗 Nối Từ (endless) — kéo/chạm nối hình ↔ từ |
-| `phrases` | — | 💬 Câu Hằng Ngày — nghe câu, chọn hình/minh hoạ |
-| — | `spell` | 🧩 Đánh Vần — xếp chồng ký tự đúng thành từ |
-| — | `listenTxt` | 👂 Nghe & Chọn (có chữ) |
-| — | `matchVi` | 🔗 Nối Anh–Việt |
+| `abc` (cùng) | `abc` | 🔤 Học Chữ Cái A–Z — học phonics + quiz nghe âm chọn chữ |
+| `topic` | — | 📚 Học Từ Vựng — chọn chủ đề → học từ có phát âm → quiz |
+| `listen` | — | 🔊 Nghe & Chọn Hình — nghe từ, chọn hình |
+| `pic` | — | 🔉 Nghe & Chọn Từ — nghe từ, chọn đúng từ (4 ô toàn chữ, không icon) |
+| `match` | — | 🔗 Nối Từ Với Hình — cột trái chỉ HÌNH ↔ cột phải chỉ CHỮ |
+| — | `spell` | 🧩 Ghép Chữ Thành Từ — xếp chồng ký tự đúng thành từ |
+| — | `listenTxt` | 🎧 Nghe & Chọn Từ — nghe từ, chọn từ (có chữ) |
+| — | `matchVi` | 🆚 Nối Anh — Việt — cột ANH ↔ cột VIỆT |
 | — | `fill` | ✏️ Điền Chữ Thiếu |
-| — | `convo` | 💬 Hội Thoại — nghe câu hỏi, trả lời |
+| — | `convo` | 🗣️ Nghe và chọn Câu — nghe câu hỏi, chọn câu trả lời |
 
 ---
 
@@ -68,9 +72,9 @@ Mọi nội dung nằm trong **`js/data.js`**:
 | --- | --- |
 | Thêm từ cho 1 chữ cái | `ALPHABET` → `words: [{ w: "Apple", vi: "Quả táo", e: "🍎" }]` |
 | Thêm từ cho 1 chủ đề | `TOPICS` → `words` (cùng cấu trúc) |
-| Thêm/sửa câu hằng ngày | `PHRASES` (câu thứ 13 trở đi → thêm key `q13`… cho audio) |
+| Thêm/sửa câu hằng ngày | `PHRASES` (giữ sẵn — chế độ `phrases` đã gỡ khỏi menu; muốn bật lại chỉ cần thêm entry trong `MODES` + `QUESTIONS`) |
 | Thêm/sửa hội thoại | `CONVO` (tự có `cq<stt>` / `ca<stt>`) |
-| Sửa câu chữ Việt trên giao diện | `VOICE_LINES` (key `v<key>`对应 file mp3) |
+| Sửa câu chữ Việt trên giao diện | `VOICE_LINES` (key `v<key>` tương ứng file mp3) |
 
 Sau khi sửa **bắt buộc chạy** (thứ tự này):
 
@@ -80,8 +84,8 @@ node tools/gen-voice.js          # chỉ sinh file THIẾU (file cũ giữ nguy�
 node tools/gen-sw.js             # làm mới cache offline
 ```
 
-> Quy tắc checker: **không trùng emoji trong 4 ô đáp án, không trùng đáp án,
-> pool mỗi chủ đề ≥4 từ**. Chạy checker trước khi sinh âm thanh để khỏi tốn công.
+> Quy tắc checker: **không trùng emoji/từ trong 4 ô đáp án, đáp án đúng luôn
+> tồn tại, pool mỗi chủ đề ≥4 từ**. Chạy checker trước khi sinh âm thanh để khỏi tốn công.
 
 ### 3.2. Sinh lại toàn bộ giọng đọc
 
@@ -98,8 +102,8 @@ node tools/gen-voice.js --force
 
 ### 3.3. Thêm 1 chế độ mới
 
-1. `js/data.js` → `MODES`: thêm `{ xxx: { name, icon, lv, rounds } }`
-   (`lv`: `"small"` / `"big"` / `"both"`; bỏ `rounds` = endless).
+1. `js/data.js` → `MODES`: thêm `{ xxx: { name, icon, lv } }`
+   (`lv`: `"small"` / `"big"` / `"both"`). Mọi mode **chơi mãi** — không khai báo số vòng.
 2. `js/data.js` → viết `QUESTIONS.xxx = () => ({ speak, prompt, options, answer })`
    nếu dùng chung engine quiz — **hoặc** viết renderer riêng trong `js/games.js`
    và thêm vào map `render` trong `next()` (xem `renderAbc`, `renderSpell`).
@@ -153,17 +157,21 @@ node tools/gen-sw.js
 node --check js/data.js; node --check js/audio.js; node --check js/games.js; node --check js/main.js; node --check js/pwa.js
 node tools/check-questions.js
 node tools/check-dom.js
-node tools/smoke-test.js      # ~2 phút — chơi trọn 11 mode, exit 1 nếu có lỗi
+node tools/smoke-test.js      # ~2 phút — chơi 10 mode kiểu "chơi mãi", exit 1 nếu có lỗi
 node tools/gen-sw.js
 ```
 
-- [ ] Chọn Bé Trai (xanh) / Bé Gái (vàng) → cấp độ → menu đúng 6 mode
-- [ ] **Bé Nhỏ:** ABC học phonics có phát âm "A for Apple"; Nghe & Chọn có nút 🔊;
-      4 ô đáp án không trùng hình; Pic: đáp án sai không bắt đầu bằng chữ mục tiêu
+- [ ] Chọn Bé Trai (xanh) / Bé Gái (vàng) → cấp độ → menu đúng 5 mode mỗi cấp độ
+- [ ] **Bé Nhỏ:** ABC học phonics có phát âm "A for Apple"; Nghe & Chọn tự đọc sau ~1,3s
+      và có nút 🔊 (bấm là phát ngay);
+      4 ô đáp án không trùng hình/từ; Pic = nghe từ → 4 ô toàn CHỮ, không trùng chữ
 - [ ] **Bé Lớn:** Điền Chữ Thiếu hiện ô trống `___`; Hội Thoại hiện 2 bong bóng chat;
       Nối Anh–Việt có 2 cột cỡ chữ khác nhau
-- [ ] Popup **≡** ở ABC hiện đúng 26 chữ, bấm nhảy được, popup tự đóng
-- [ ] Chơi 10 vòng → popup tổng kết hiện sao + khen; **Chơi Lại** làm lại từ đầu
+- [ ] Nối Từ Với Hình: cột trái **chỉ HÌNH**, cột phải **chỉ CHỮ** (bấm hình nghe tiếng đọc)
+- [ ] Mỗi vòng random khác vòng trước — ABC/từ vựng/spell không lặp liền kề;
+      không có thanh tiến trình/chấm vòng nào trên header
+- [ ] Chơi vài vòng rồi bấm ⬅️ Thoát → về menu; tổng sao ⭐ và best của mode
+      được lưu **ngay lúc thoát** (không có màn tổng kết)
 - [ ] Bấm 🔊/🔇 tắt tiếng thì im lặng hoàn toàn, bật lại được
 - [ ] Dọc & ngang đều không bị cuộn; điện thoại 360px menu không vỡ layout
 - [ ] Tắt mạng → reload vẫn chơi được (đã chạy `gen-sw.js` sau lần sửa cuối)

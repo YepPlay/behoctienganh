@@ -1,6 +1,7 @@
 /* Smoke-test chơi THẬT bằng jsdom (mượn jsdom của behoctoan nếu máy chưa cài):
-   chọn bạn → chọn cấp độ → menu → chơi TỪNG mode tới màn tổng kết → đổi cấp
-   độ → popup chọn vòng ≡ → toggle tiếng đọc → kiểm tra tiến độ được ghi.
+   chọn bạn → chọn cấp độ → menu → chơi MỖI mode theo kiểu "CHƠI MÃI"
+   (random vĩnh viễn, không màn tổng kết, không popup ≡) → bé tự bấm ⬅️ Thoát
+   → kiểm tra sao ⭐ được LƯU NGAY LÚC THOÁT.
    Lệnh:  node tools/smoke-test.js     (mất ~2 phút, exit 1 nếu có lỗi) */
 const fs = require("fs");
 const path = require("path");
@@ -91,43 +92,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return false;
   }
 
-  /* Chơi 1 mode. opt.partial = n → sau n vòng bấm Về Menu;
-     opt.jumpTest → sau vòng đầu mở popup ≡ nhảy thẳng tới chữ Z rồi chơi nốt. */
+  /* Chơi 1 mode "chơi mãi": chơi opt.rounds vòng (mặc định 3) rồi bấm ⬅️
+     Thoát như bé tự thoát — không màn tổng kết, không vòng cố định. */
   async function playMode(mode, opt) {
     opt = opt || {};
+    const wantRounds = opt.rounds != null ? opt.rounds : 3;
     const card = $(`.mode-card[data-mode="${mode}"]`);
     if (!card) { fails++; console.log("  ✗ không thấy card mode " + mode); return; }
     card.click();
     await until(() => st() && st().mode === mode, 3000, mode + " khởi động");
     if (!st()) return;
 
-    let wrongTried = false, lastIdx = -1, lastPhase = "", jumpDone = false;
+    let wrongTried = false, reached = false;
     const t0 = Date.now();
 
     while (st() && Date.now() - t0 < 60000) {
       const s = st();
 
-      /* Chế độ từng phần: tới vòng yêu cầu thì dừng NGAY (chưa bấm gì nữa) */
-      if (opt.partial != null && s.idx >= opt.partial) break;
-
-      /* Jump test: sau vòng đầu (đã quay về trang học vòng 2) → mở popup ≡ */
-      if (opt.jumpTest && !jumpDone && s.idx >= 1 && s.phase === "study") {
-        jumpDone = true;
-        $("#play-progress").click();
-        await sleep(60);
-        ok($("#jump-picker").classList.contains("open"), "popup chọn vòng (≡) mở ra");
-        const chips = $$("#jump-grid .popup-chip");
-        ok(chips.length === 26, "grid có đủ 26 chữ cái");
-        chips[25].click();
-        await sleep(80);
-        ok(!$("#jump-picker").classList.contains("open"), "bấm chữ Z → popup tự đóng");
-        ok(st() && st().idx === 25, "Game nhảy đúng tới vòng 25 (chữ Z)");
-        continue;
-      }
-
-      if (s.idx !== lastIdx || s.phase !== lastPhase) {
-        lastIdx = s.idx; lastPhase = s.phase;
-      }
+      /* Chơi đủ số vòng yêu cầu → dừng NGAY để bấm Thoát
+         (vòng mới có thể vừa random ra — vẫn được, bé đang cầm quyền chơi) */
+      if (s.idx >= wantRounds) { reached = true; break; }
 
       /* Mode topic: chọn chủ đề trước */
       const tc = $(".topic-card");
@@ -150,7 +134,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         await sleep(60); continue;
       }
 
-      /* Match / MatchVi (endless): thả-chọn 1 cặp, nối hết 1 nhóm rồi về menu */
+      /* Match / MatchVi: thả-chọn 1 cặp, nối hết 1 nhóm là đủ 1 vòng */
       if ($(".m-pic")) {
         const pics = $$(".m-pic:not(.matched)");
         if (!pics.length) { await sleep(80); continue; }     /* chờ vòng mới */
@@ -192,20 +176,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       await sleep(140);
     }
 
-    if (!st()) {
-      /* Chơi đủ vòng → màn tổng kết */
-      await until(() => $("#screen-summary").classList.contains("active"), 6000, mode + " tới màn tổng kết");
-      const title = $("#summary-title").textContent;
-      const stars = $("#summary-stars").textContent;
-      ok(title.length > 0 && stars.includes("ngôi sao"),
-        `${mode}: tổng kết "${title}" · ${stars.replace(/\s+/g, " ").trim().slice(0, 26)}`);
-      $("#btn-menu").click();
-      await until(() => $("#screen-menu").classList.contains("active"), 3000, mode + " về menu");
-    } else {
-      $("#btn-back").click();
-      await until(() => $("#screen-menu").classList.contains("active"), 3000, mode + " về menu");
-      ok(true, mode + " chơi thử " + (opt.partial != null ? opt.partial + " vòng" : "1 nhóm") + " → Về Menu");
-    }
+    /* Chơi mãi: game KHÔNG BAO GIỜ được tự kết thúc — chỉ bé Thoát mới xong */
+    ok(reached, `${mode}: chơi được ${wantRounds} vòng random (không tự kết thúc)`);
+    if (!st()) return;
+    $("#btn-back").click();
+    await until(() => $("#screen-menu").classList.contains("active"), 3000, mode + " bấm ⬅️ về menu");
+    ok(true, mode + ": bé bấm ⬅️ Thoát → về menu, sao ⭐ được lưu");
   }
 
   /* ==================== BẮT ĐẦU ==================== */
@@ -221,10 +197,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(80);
   ok($("#screen-menu").classList.contains("active"), "chọn Bé Nhỏ → vào menu");
 
-  const smallModes = ["abc", "topic", "listen", "pic", "match", "phrases"];
+  const smallModes = ["abc", "topic", "listen", "pic", "match"];
   const shown = $$(".mode-card").map(c => c.dataset.mode);
   ok(JSON.stringify(shown) === JSON.stringify(smallModes),
-    "menu Bé Nhỏ đúng 6 mode: " + shown.join(", "));
+    "menu Bé Nhỏ đúng 5 mode: " + shown.join(", "));
 
   const v0 = T.Voice.isOn();
   $("#btn-voice").click();
@@ -232,13 +208,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   $("#btn-voice").click();
   ok(T.Voice.isOn() === v0, "bật lại tiếng đọc");
 
-  console.log("2/5 Chơi 6 mode của Bé Nhỏ …");
-  await playMode("abc", { jumpTest: true });   /* học+quiz 1 chữ → popup ≡ nhảy tới Z → tổng kết */
-  await playMode("topic", { partial: 2 });
+  console.log("2/5 Chơi 5 mode của Bé Nhỏ …");
+  /* Kiểm tra GIỌNG ĐỌC TỰ ĐỘNG của mode nghe: vào vòng, KHÔNG bấm gì,
+     sau ~1.3s phải có tiếng (bug cũ: schedule() gọi clearTicker() ngay sau
+     later() → hủy luôn timer phát tự động → bé ngồi nghe im 5,5 giây). */
+  {
+    let sayCalls = 0;
+    const origSay = T.Voice.say;
+    T.Voice.say = function () { sayCalls++; return origSay.apply(T.Voice, arguments); };
+    $('.mode-card[data-mode="listen"]').click();
+    await until(() => st() && st().mode === "listen", 3000, "listen khởi động (kiểm tiếng tự động)");
+    await sleep(1700);   /* dài hơn START_DELAY 1300ms */
+    ok(sayCalls > 0, "listen: có tiếng đọc TỰ ĐỘNG sau ~1.3 giây");
+    const before = sayCalls;
+    const hb = $("#btn-hear");
+    ok(!!hb, "listen: có nút 🔊 trên prompt");
+    if (hb) hb.click();
+    await sleep(80);
+    ok(sayCalls > before, "listen: bấm 🔊 → phát tiếng ngay lập tức");
+    T.Voice.say = origSay;
+    $("#btn-back").click();   /* thoát luôn — vòng này chỉ để kiểm giọng */
+    await until(() => $("#screen-menu").classList.contains("active"), 3000, "thoát khỏi vòng kiểm giọng");
+  }
+  await playMode("abc", { rounds: 3 });     /* random 3 chữ, không theo thứ tự A→Z */
+  await playMode("topic", { rounds: 2 });   /* random 2 từ trong 1 chủ đề */
   await playMode("listen");
-  await playMode("pic");
-  await playMode("phrases");
-  await playMode("match", { partial: 1 });
+  await playMode("pic");                    /* nghe từ → chọn từ đúng (4 ô toàn chữ) */
+  await playMode("match", { rounds: 1 });   /* nối hết 1 nhóm = 1 vòng */
 
   console.log("3/5 Đổi sang cấp độ Bé Lớn …");
   $("#btn-level").click();
@@ -254,7 +250,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log("4/5 Chơi 5 mode mới của Bé Lớn …");
   await playMode("spell");
   await playMode("listenTxt");
-  await playMode("matchVi", { partial: 1 });
+  await playMode("matchVi", { rounds: 1 });
   await playMode("fill");
   await playMode("convo");
 
@@ -270,5 +266,5 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   console.log("\n========== KẾT QUẢ ==========");
   if (fails) { console.log(`❌ ${fails} mục fail`); process.exit(1); }
-  console.log("✅ Smoke-test PASSED — chơi trọn vẹn 11 mode, không lỗi.");
+  console.log("✅ Smoke-test PASSED — 10 mode chơi mãi đến khi bé thoát, không lỗi.");
 })().catch(e => { console.error("CRASH:", e); process.exit(1); });

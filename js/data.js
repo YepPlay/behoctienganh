@@ -50,19 +50,19 @@ const LETTERS = ALPHABET.map(a => a.letter);
 const LETTER_MAP = Object.fromEntries(ALPHABET.map(a => [a.letter, a]));
 
 /* CÁC CHẾ ĐỘ CHƠI — lv: "small" (Bé Nhỏ 3–6) | "big" (Bé Lớn 6–9) | "both"
-   endless = chơi không giới hạn vòng · rounds() = số vòng có giới hạn */
+   Mọi chế độ đều "CHƠI MÃI": random vĩnh viễn cho đến khi bé tự bấm ⬅️ Thoát
+   (không khai báo số vòng, không thanh tiến trình). */
 const MODES = {
   abc:       { name: "Học Chữ Cái A–Z",     icon: "🔤", lv: "both" },
   topic:     { name: "Học Từ Vựng",          icon: "📚", lv: "small" },
   listen:    { name: "Nghe & Chọn Hình",     icon: "🔊", lv: "small" },
-  pic:       { name: "Chọn Hình Theo Chữ",   icon: "🖼️", lv: "small" },
-  match:     { name: "Nối Từ Với Hình",      icon: "🔗", lv: "small", endless: true },
-  phrases:   { name: "Nghe Câu Đầy",         icon: "💬", lv: "small" },
-  spell:     { name: "Ghép Chữ Thành Từ",    icon: "🧩", lv: "big", rounds: () => 10 },
+  pic:       { name: "Nghe & Chọn Từ",       icon: "🔉", lv: "small" },
+  match:     { name: "Nối Từ Với Hình",      icon: "🔗", lv: "small" },
+  spell:     { name: "Ghép Chữ Thành Từ",    icon: "🧩", lv: "big" },
   listenTxt: { name: "Nghe & Chọn Từ",       icon: "🎧", lv: "big" },
-  matchVi:   { name: "Nối Anh — Việt",       icon: "🆚", lv: "big", endless: true },
+  matchVi:   { name: "Nối Anh — Việt",       icon: "🆚", lv: "big" },
   fill:      { name: "Điền Chữ Thiếu",       icon: "✏️", lv: "big" },
-  convo:     { name: "Hội Đốp Mũm",          icon: "🗣️", lv: "big" },
+  convo:     { name: "Nghe và chọn Câu",     icon: "🗣️", lv: "big" },
 };
 
 const SMALL_MODES = Object.keys(MODES).filter(m => MODES[m].lv !== "big");
